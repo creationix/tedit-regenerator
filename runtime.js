@@ -14,25 +14,27 @@
 
   // Dummy constructor that we use as the .constructor property for
   // functions that return Generator objects.
-  GeneratorFunction,
-
-  // Undefined value, more compressible than void 0.
-  undefined
+  GeneratorFunction
 ) {
   var hasOwn = Object.prototype.hasOwnProperty;
+  var undefined; // More compressible than void 0.
 
-  if (global.wrapGenerator) {
+  try {
+    // Make a reasonable attempt to provide a Promise polyfill.
+    var Promise = global.Promise || (global.Promise = require("promise"));
+  } catch (ignored) {}
+
+  if (global.regeneratorRuntime) {
     return;
   }
 
-  function wrapGenerator(innerFn, outerFn, self, tryList) {
+  var runtime = global.regeneratorRuntime =
+    typeof exports === "undefined" ? {} : exports;
+
+  function wrap(innerFn, outerFn, self, tryList) {
     return new Generator(innerFn, outerFn, self || null, tryList || []);
   }
-
-  global.wrapGenerator = wrapGenerator;
-  if (typeof exports !== "undefined") {
-    exports.wrapGenerator = wrapGenerator;
-  }
+  runtime.wrap = wrap;
 
   var GenStateSuspendedStart = "suspendedStart";
   var GenStateSuspendedYield = "suspendedYield";
@@ -49,10 +51,35 @@
   GFp.prototype = Gp;
   Gp.constructor = GFp;
 
-  wrapGenerator.mark = function(genFun) {
+  runtime.mark = function(genFun) {
     genFun.__proto__ = GFp;
     genFun.prototype = Object.create(Gp);
     return genFun;
+  };
+
+  runtime.async = function(innerFn, self, tryList) {
+    return new Promise(function(resolve, reject) {
+      var generator = wrap(innerFn, self, tryList);
+      var callNext = step.bind(generator.next);
+      var callThrow = step.bind(generator.throw);
+
+      function step(arg) {
+        try {
+          var info = this(arg);
+          var value = info.value;
+        } catch (error) {
+          return reject(error);
+        }
+
+        if (info.done) {
+          resolve(value);
+        } else {
+          Promise.resolve(value).then(callNext, callThrow);
+        }
+      }
+
+      callNext();
+    });
   };
 
   // Ensure isGeneratorFunction works when Function#name not supported.
@@ -60,7 +87,7 @@
     GeneratorFunction.name = "GeneratorFunction";
   }
 
-  wrapGenerator.isGeneratorFunction = function(genFun) {
+  runtime.isGeneratorFunction = function(genFun) {
     var ctor = genFun && genFun.constructor;
     return ctor ? GeneratorFunction.name === ctor.name : false;
   };
@@ -140,6 +167,9 @@
             method = "next";
             arg = undefined;
           }
+
+        } else if (method === "return") {
+          context.abrupt("return", arg);
         }
 
         state = GenStateExecuting;
@@ -182,6 +212,7 @@
 
     generator.next = invoke.bind(generator, "next");
     generator.throw = invoke.bind(generator, "throw");
+    generator.return = invoke.bind(generator, "return");
 
     return generator;
   }
@@ -226,7 +257,7 @@
     this.reset();
   }
 
-  wrapGenerator.keys = function(object) {
+  runtime.keys = function(object) {
     var keys = [];
     for (var key in object) {
       keys.push(key);
@@ -275,7 +306,7 @@
     }
     return iterator;
   }
-  wrapGenerator.values = values;
+  runtime.values = values;
 
   Context.prototype = {
     constructor: Context,
@@ -439,4 +470,4 @@
       return ContinueSentinel;
     }
   };
-}).apply(this, [this, function GeneratorFunction(){}]);
+}).apply(this, return [this, function GeneratorFunction(){}]);
