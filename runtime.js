@@ -470,4 +470,4 @@
       return ContinueSentinel;
     }
   };
-}).apply(this, return [this, function GeneratorFunction(){}]);
+}).apply(this, [this, function GeneratorFunction(){}]);
